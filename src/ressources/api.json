@@ -1,0 +1,382 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Werkstatt Auftragsverwaltung API",
+    "description": "API zur Verwaltung von Reparaturaufträgen (Work Orders) in einer Werkstatt. Ermöglicht das Erstellen, Lesen, Aktualisieren und Löschen von Aufträgen sowie das Filtern nach Status, Kennzeichen oder Fälligkeitsdatum.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Support Werkstatt API"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Lokaler Entwicklungsserver"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "WorkOrder": {
+        "type": "object",
+        "description": "Repräsentiert einen Arbeitsauftrag für ein Fahrzeug.",
+        "required": [
+          "licensePlate",
+          "description",
+          "status",
+          "dueDate"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Eindeutige ID des Auftrags (vom Server generiert).",
+            "example": 101,
+            "readOnly": true
+          },
+          "licensePlate": {
+            "type": "string",
+            "description": "KFZ-Kennzeichen des Fahrzeugs.",
+            "minLength": 1,
+            "maxLength": 20,
+            "example": "SB-XY-123"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detaillierte Beschreibung der durchzuführenden Arbeit.",
+            "minLength": 1,
+            "maxLength": 255,
+            "example": "Bremsscheiben wechseln"
+          },
+          "status": {
+            "type": "string",
+            "description": "Aktueller Status des Arbeitsauftrags.",
+            "enum": [
+              "PENDING",
+              "IN_PROGRESS",
+              "COMPLETED"
+            ],
+            "example": "PENDING"
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Fälligkeitsdatum für die Fertigstellung der Arbeiten (YYYY-MM-DD).",
+            "example": "2025-10-15"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "description": "Standardstruktur für Fehlermeldungen.",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Kurze Fehlermeldung.",
+            "example": "Wrong format for dueDate"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Details zum Fehler oder Vorschlag zur Behebung.",
+            "example": "Date must be in YYYY-MM-DD format"
+          },
+          "path": {
+            "type": "string",
+            "description": "Die URI der Ressource, bei der der Fehler aufgetreten ist.",
+            "example": "/workorders"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "OAuth2": {
+        "type": "oauth2",
+        "description": "OAuth 2.0 Authentifizierung (Implicit Flow Beispiel)",
+        "flows": {
+          "implicit": {
+            "authorizationUrl": "https://example.com/oauth/authorize",
+            "scopes": {
+              "read:workorders": "Lesezugriff auf Arbeitsaufträge",
+              "write:workorders": "Schreibzugriff auf Arbeitsaufträge"
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "OAuth2": [
+        "read:workorders",
+        "write:workorders"
+      ]
+    }
+  ],
+  "paths": {
+    "/workorders": {
+      "get": {
+        "summary": "Liste der Arbeitsaufträge abrufen",
+        "description": "Gibt eine Liste aller Arbeitsaufträge zurück. Kann nach Status, Kennzeichen oder Fälligkeitsdatum gefiltert werden.",
+        "operationId": "getWorkOrders",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filtern nach Status (PENDING, IN_PROGRESS, COMPLETED)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "IN_PROGRESS",
+                "COMPLETED"
+              ]
+            }
+          },
+          {
+            "name": "licensePlate",
+            "in": "query",
+            "description": "Filtern nach KFZ-Kennzeichen",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueDate",
+            "in": "query",
+            "description": "Filtern nach Fälligkeitsdatum (YYYY-MM-DD)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste der Arbeitsaufträge erfolgreich abgerufen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkOrder"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Keine Arbeitsaufträge gefunden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Neuen Arbeitsauftrag erstellen",
+        "description": "Fügt dem System einen neuen Arbeitsauftrag hinzu.",
+        "operationId": "createWorkOrder",
+        "requestBody": {
+          "description": "Das zu erstellende WorkOrder-Objekt (ohne ID)",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkOrder"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Arbeitsauftrag erfolgreich erstellt.",
+            "headers": {
+              "Location": {
+                "description": "URI der neu erstellten Ressource",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrder"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungültige Eingabedaten (Bad Request).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workorders/{id}": {
+      "get": {
+        "summary": "Arbeitsauftrag per ID abrufen",
+        "description": "Gibt die Details eines spezifischen Arbeitsauftrags zurück.",
+        "operationId": "getWorkOrderById",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID des Arbeitsauftrags",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Arbeitsauftrag gefunden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrder"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Arbeitsauftrag nicht gefunden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungültige ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Arbeitsauftrag aktualisieren",
+        "description": "Aktualisiert die Informationen eines bestehenden Arbeitsauftrags.",
+        "operationId": "updateWorkOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID des zu aktualisierenden Arbeitsauftrags",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "WorkOrder-Objekt mit den aktualisierten Daten",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkOrder"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Aktualisierung erfolgreich.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrder"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungültige Daten oder ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Arbeitsauftrag nicht gefunden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Arbeitsauftrag löschen",
+        "description": "Löscht einen Arbeitsauftrag aus dem System.",
+        "operationId": "deleteWorkOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "ID des zu löschenden Arbeitsauftrags",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Löschvorgang erfolgreich (Kein Inhalt)."
+          },
+          "404": {
+            "description": "Arbeitsauftrag nicht gefunden.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Ungültige ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
