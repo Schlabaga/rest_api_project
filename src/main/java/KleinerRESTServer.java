@@ -165,5 +165,4 @@ public class KleinerRESTServer {
 		os.write(htmlRspMsg.getBytes());
 		os.close();
 	}
-
 }

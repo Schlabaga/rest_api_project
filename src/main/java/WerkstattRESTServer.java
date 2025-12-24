@@ -1,9 +1,11 @@
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
-import java.util.ArrayList;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -20,7 +22,7 @@ import com.sun.net.httpserver.HttpServer;
 public class WerkstattRESTServer {
 
     private static final int PORT = 8080;
-    
+
     // Simuler une Base de Données en mémoire
     private static final Map<Long, WorkOrder> DATABASE = Collections.synchronizedMap(new HashMap<>());
     private static final AtomicLong ID_GENERATOR = new AtomicLong(1);
@@ -36,13 +38,27 @@ public class WerkstattRESTServer {
 
             server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
             server.start();
-            
-            System.out.println("Werkstatt API Server auf Port " + PORT + " gestartet.");
-            System.out.println("Resources: /workorders und /workorders/{id}");
-            System.out.println("Stoppe Web-Server durch beliebige Eingabe...");
-            
+
+            System.out.println("=".repeat(60));
+            System.out.println("Werkstatt API Server gestartet");
+            System.out.println("=".repeat(60));
+            System.out.println("Port:      " + PORT);
+            System.out.println("Base URL:  http://localhost:" + PORT);
+            System.out.println("\nEndpoints:");
+            System.out.println("  GET    /workorders           - Liste aller Aufträge");
+            System.out.println("  POST   /workorders           - Neuen Auftrag erstellen");
+            System.out.println("  GET    /workorders/{id}      - Auftrag abrufen");
+            System.out.println("  PUT    /workorders/{id}      - Auftrag aktualisieren");
+            System.out.println("  DELETE /workorders/{id}      - Auftrag löschen");
+            System.out.println("\nQuery-Parameter (GET /workorders):");
+            System.out.println("  ?status=PENDING");
+            System.out.println("  ?licensePlate=SB-XY-123");
+            System.out.println("  ?dueDate=2025-10-15");
+            System.out.println("=".repeat(60));
+            System.out.println("\nDrücke ENTER zum Beenden...\n");
+
             Scanner sc = new Scanner(System.in);
-            sc.next();
+            sc.nextLine();
             sc.close();
             server.stop(0);
             System.out.println("Web-Server gestoppt.");
@@ -54,8 +70,10 @@ public class WerkstattRESTServer {
     private static void initDummyData() {
         createOrder("SB-XY-123", "Bremsscheiben wechseln", "PENDING", "2025-10-15");
         createOrder("KL-AA-007", "Ölwechsel", "IN_PROGRESS", "2025-09-01");
+        createOrder("SB-BB-999", "TÜV Hauptuntersuchung", "PENDING", "2025-12-20");
+        createOrder("SB-XY-123", "Klimaanlage prüfen", "COMPLETED", "2025-08-10");
     }
-    
+
     private static WorkOrder createOrder(String lp, String desc, String status, String due) {
         long id = ID_GENERATOR.getAndIncrement();
         WorkOrder wo = new WorkOrder(id, lp, desc, status, due);
@@ -79,12 +97,15 @@ public class WerkstattRESTServer {
             this.dueDate = dueDate;
         }
 
-        // Conversion manuelle en JSON pour l'affichage
         public String toJson() {
             return String.format(
-                "{\"id\":%d, \"licensePlate\":\"%s\", \"description\":\"%s\", \"status\":\"%s\", \"dueDate\":\"%s\"}",
-                id, licensePlate, description, status, dueDate
+                "{\"id\":%d,\"licensePlate\":\"%s\",\"description\":\"%s\",\"status\":\"%s\",\"dueDate\":\"%s\"}",
+                id, escapedJson(licensePlate), escapedJson(description), status, dueDate
             );
+        }
+
+        private String escapedJson(String str) {
+            return str.replace("\\", "\\\\").replace("\"", "\\\"");
         }
     }
 
@@ -103,35 +124,34 @@ public class WerkstattRESTServer {
         public void handle(HttpExchange exchange) throws IOException {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
+            String query = exchange.getRequestURI().getQuery();
 
-            // Log de la requête
-            System.out.println(MessageFormat.format("Request: {0} {1}", method, path));
+            System.out.println(MessageFormat.format("[{0}] {1} {2}",
+                java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")),
+                method,
+                path + (query != null ? "?" + query : "")));
 
-            // Lecture du body (si présent)
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
-            // --- ROUTING (Aiguillage) ---
-            
-            // 1. Collection: /workorders
+            // --- ROUTING ---
+
             if (path.equals("/workorders")) {
                 switch (method) {
                     case "GET":
-                        handleGetCollection(exchange);
+                        handleGetCollection(exchange, query);
                         break;
                     case "POST":
                         handlePost(exchange, body);
                         break;
                     default:
-                        sendError(exchange, METHOD_NOT_ALLOWED, "Method not allowed. Use GET or POST.");
+                        sendMethodNotAllowed(exchange, "GET, POST");
                 }
-            } 
-            // 2. Item: /workorders/{id}
+            }
             else if (path.matches("/workorders/\\d+")) {
-                // Extraction de l'ID depuis l'URL
                 long id = extractIdFromPath(path);
-                
+
                 if (id == -1) {
-                    sendError(exchange, BAD_REQUEST, "Invalid ID format");
+                    sendError(exchange, BAD_REQUEST, "Invalid ID format", "ID must be a positive integer", path);
                     return;
                 }
 
@@ -146,42 +166,82 @@ public class WerkstattRESTServer {
                         handleDelete(exchange, id);
                         break;
                     default:
-                        sendError(exchange, METHOD_NOT_ALLOWED, "Method not allowed. Use GET, PUT or DELETE.");
+                        sendMethodNotAllowed(exchange, "GET, PUT, DELETE");
                 }
-            } 
-            // 3. Route inconnue
+            }
             else {
-                sendError(exchange, NOT_FOUND, "Endpoint not found");
+                sendError(exchange, NOT_FOUND, "Endpoint not found",
+                    "Available endpoints: /workorders, /workorders/{id}", path);
             }
         }
 
-        // --- MÉTHODES SPÉCIFIQUES (Logique métier) ---
+        // --- COLLECTION AVEC FILTRES ---
+        private void handleGetCollection(HttpExchange exchange, String queryString) throws IOException {
+            Map<String, String> params = parseQueryParams(queryString);
 
-        private void handleGetCollection(HttpExchange exchange) throws IOException {
-            // Transformer la Map en liste JSON
-            String jsonResponse = DATABASE.values().stream()
+            // Filtre des données
+            List<WorkOrder> filtered = DATABASE.values().stream()
+                .filter(wo -> {
+                    // Filtre par status
+                    if (params.containsKey("status")) {
+                        if (!wo.status.equalsIgnoreCase(params.get("status"))) {
+                            return false;
+                        }
+                    }
+                    // Filtre par licensePlate
+                    if (params.containsKey("licensePlate")) {
+                        if (!wo.licensePlate.equalsIgnoreCase(params.get("licensePlate"))) {
+                            return false;
+                        }
+                    }
+                    // Filtre par dueDate
+                    if (params.containsKey("dueDate")) {
+                        if (!wo.dueDate.equals(params.get("dueDate"))) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+
+            String jsonResponse = filtered.stream()
                 .map(WorkOrder::toJson)
                 .collect(Collectors.joining(",", "[", "]"));
-            
+
             sendJson(exchange, OK, jsonResponse);
         }
 
+        // --- POST avec validation ---
         private void handlePost(HttpExchange exchange, String body) throws IOException {
-            // Parsing manuel (Attention: fragile sans librairie JSON)
+            // Vérification Content-Type
+            List<String> contentTypes = exchange.getRequestHeaders().get("Content-Type");
+            if (contentTypes == null || !contentTypes.get(0).contains("application/json")) {
+                sendError(exchange, BAD_REQUEST, "Invalid Content-Type",
+                    "Expected: application/json", "/workorders");
+                return;
+            }
+
             String licensePlate = extractJsonValue(body, "licensePlate");
             String description = extractJsonValue(body, "description");
             String status = extractJsonValue(body, "status");
             String dueDate = extractJsonValue(body, "dueDate");
 
-            if (licensePlate == null || description == null) {
-                sendError(exchange, BAD_REQUEST, "Missing required fields (licensePlate, description)");
+            // Validation
+            ValidationResult validation = validateWorkOrder(licensePlate, description, status, dueDate);
+            if (!validation.isValid) {
+                sendError(exchange, BAD_REQUEST, validation.errorMessage,
+                    validation.errorDetail, "/workorders");
                 return;
             }
 
-            // Création et sauvegarde
-            WorkOrder newOrder = createOrder(licensePlate, description, status, dueDate);
+            // Création
+            WorkOrder newOrder = createOrder(
+                licensePlate,
+                description,
+                status != null ? status : "PENDING",
+                dueDate
+            );
 
-            // Headers de réponse
             exchange.getResponseHeaders().add("Location", "/workorders/" + newOrder.id);
             sendJson(exchange, CREATED, newOrder.toJson());
         }
@@ -191,23 +251,58 @@ public class WerkstattRESTServer {
             if (order != null) {
                 sendJson(exchange, OK, order.toJson());
             } else {
-                sendError(exchange, NOT_FOUND, "WorkOrder with ID " + id + " not found.");
+                sendError(exchange, NOT_FOUND, "WorkOrder not found",
+                    "No work order exists with ID " + id, "/workorders/" + id);
             }
         }
 
         private void handlePut(HttpExchange exchange, long id, String body) throws IOException {
             WorkOrder order = DATABASE.get(id);
             if (order == null) {
-                sendError(exchange, NOT_FOUND, "WorkOrder not found.");
+                sendError(exchange, NOT_FOUND, "WorkOrder not found",
+                    "No work order exists with ID " + id, "/workorders/" + id);
                 return;
             }
 
-            // Mise à jour partielle
+            // Vérification Content-Type
+            List<String> contentTypes = exchange.getRequestHeaders().get("Content-Type");
+            if (contentTypes == null || !contentTypes.get(0).contains("application/json")) {
+                sendError(exchange, BAD_REQUEST, "Invalid Content-Type",
+                    "Expected: application/json", "/workorders/" + id);
+                return;
+            }
+
             String licensePlate = extractJsonValue(body, "licensePlate");
             String description = extractJsonValue(body, "description");
             String status = extractJsonValue(body, "status");
             String dueDate = extractJsonValue(body, "dueDate");
 
+            // Validation des champs modifiés
+            if (status != null && !isValidStatus(status)) {
+                sendError(exchange, BAD_REQUEST, "Invalid status",
+                    "Status must be PENDING, IN_PROGRESS, or COMPLETED", "/workorders/" + id);
+                return;
+            }
+
+            if (dueDate != null && !isValidDate(dueDate)) {
+                sendError(exchange, BAD_REQUEST, "Invalid date format",
+                    "Date must be in YYYY-MM-DD format", "/workorders/" + id);
+                return;
+            }
+
+            if (licensePlate != null && !isValidLicensePlate(licensePlate)) {
+                sendError(exchange, BAD_REQUEST, "Invalid license plate",
+                    "License plate must be 1-20 characters", "/workorders/" + id);
+                return;
+            }
+
+            if (description != null && !isValidDescription(description)) {
+                sendError(exchange, BAD_REQUEST, "Invalid description",
+                    "Description must be 1-255 characters", "/workorders/" + id);
+                return;
+            }
+
+            // Mise à jour
             if (licensePlate != null) order.licensePlate = licensePlate;
             if (description != null) order.description = description;
             if (status != null) order.status = status;
@@ -218,14 +313,107 @@ public class WerkstattRESTServer {
 
         private void handleDelete(HttpExchange exchange, long id) throws IOException {
             if (DATABASE.remove(id) != null) {
-                // 204 No Content ne renvoie pas de corps
                 exchange.sendResponseHeaders(NO_CONTENT, -1);
+                System.out.println("  → WorkOrder " + id + " deleted");
             } else {
-                sendError(exchange, NOT_FOUND, "WorkOrder not found.");
+                sendError(exchange, NOT_FOUND, "WorkOrder not found",
+                    "No work order exists with ID " + id, "/workorders/" + id);
             }
         }
 
+        // --- VALIDATION ---
+
+        static class ValidationResult {
+            boolean isValid;
+            String errorMessage;
+            String errorDetail;
+
+            ValidationResult(boolean valid, String msg, String detail) {
+                this.isValid = valid;
+                this.errorMessage = msg;
+                this.errorDetail = detail;
+            }
+        }
+
+        private ValidationResult validateWorkOrder(String lp, String desc, String status, String dueDate) {
+            if (lp == null || lp.trim().isEmpty()) {
+                return new ValidationResult(false, "Missing required field",
+                    "licensePlate is required");
+            }
+            if (!isValidLicensePlate(lp)) {
+                return new ValidationResult(false, "Invalid license plate",
+                    "License plate must be 1-20 characters");
+            }
+
+            if (desc == null || desc.trim().isEmpty()) {
+                return new ValidationResult(false, "Missing required field",
+                    "description is required");
+            }
+            if (!isValidDescription(desc)) {
+                return new ValidationResult(false, "Invalid description",
+                    "Description must be 1-255 characters");
+            }
+
+            if (status != null && !isValidStatus(status)) {
+                return new ValidationResult(false, "Invalid status",
+                    "Status must be PENDING, IN_PROGRESS, or COMPLETED");
+            }
+
+            if (dueDate == null || dueDate.trim().isEmpty()) {
+                return new ValidationResult(false, "Missing required field",
+                    "dueDate is required");
+            }
+            if (!isValidDate(dueDate)) {
+                return new ValidationResult(false, "Invalid date format",
+                    "Date must be in YYYY-MM-DD format");
+            }
+
+            return new ValidationResult(true, null, null);
+        }
+
+        private boolean isValidStatus(String status) {
+            return status.equals("PENDING") || status.equals("IN_PROGRESS") || status.equals("COMPLETED");
+        }
+
+        private boolean isValidDate(String date) {
+            try {
+                LocalDate.parse(date);
+                return true;
+            } catch (DateTimeParseException e) {
+                return false;
+            }
+        }
+
+        private boolean isValidLicensePlate(String lp) {
+            return lp != null && lp.length() >= 1 && lp.length() <= 20;
+        }
+
+        private boolean isValidDescription(String desc) {
+            return desc != null && desc.length() >= 1 && desc.length() <= 255;
+        }
+
         // --- UTILITAIRES ---
+
+        private Map<String, String> parseQueryParams(String query) {
+            Map<String, String> params = new HashMap<>();
+            if (query == null || query.isEmpty()) {
+                return params;
+            }
+
+            for (String param : query.split("&")) {
+                String[] keyValue = param.split("=", 2);
+                if (keyValue.length == 2) {
+                    try {
+                        String key = URLDecoder.decode(keyValue[0], StandardCharsets.UTF_8);
+                        String value = URLDecoder.decode(keyValue[1], StandardCharsets.UTF_8);
+                        params.put(key, value);
+                    } catch (Exception e) {
+                        // Ignorer les paramètres malformés
+                    }
+                }
+            }
+            return params;
+        }
 
         private long extractIdFromPath(String path) {
             try {
@@ -244,26 +432,44 @@ public class WerkstattRESTServer {
             }
         }
 
-        private void sendError(HttpExchange exchange, int statusCode, String message) throws IOException {
-            String jsonError = String.format("{\"error\": \"%s\"}", message);
+        private void sendError(HttpExchange exchange, int statusCode, String message,
+                               String detail, String path) throws IOException {
+            String jsonError = String.format(
+                "{\"message\":\"%s\",\"detail\":\"%s\",\"path\":\"%s\"}",
+                message, detail, path
+            );
             sendJson(exchange, statusCode, jsonError);
         }
 
-        // Petit parser JSON "maison" (à ne pas utiliser en prod, utilisez Jackson/Gson)
+        private void sendMethodNotAllowed(HttpExchange exchange, String allowedMethods) throws IOException {
+            exchange.getResponseHeaders().add("Allow", allowedMethods);
+            sendError(exchange, METHOD_NOT_ALLOWED, "Method not allowed",
+                "Allowed methods: " + allowedMethods, exchange.getRequestURI().getPath());
+        }
+
+        // Parser JSON simple (pour production: utiliser Jackson/Gson)
         private String extractJsonValue(String json, String key) {
             try {
                 String searchKey = "\"" + key + "\"";
                 int start = json.indexOf(searchKey);
                 if (start == -1) return null;
-                
+
                 int valueStart = json.indexOf(":", start) + 1;
-                while (json.charAt(valueStart) == ' ' || json.charAt(valueStart) == '"') valueStart++;
-                
+                while (valueStart < json.length() &&
+                       (json.charAt(valueStart) == ' ' || json.charAt(valueStart) == '"')) {
+                    valueStart++;
+                }
+
                 int valueEnd = valueStart;
-                while (valueEnd < json.length() && json.charAt(valueEnd) != '"' && json.charAt(valueEnd) != ',' && json.charAt(valueEnd) != '}') {
+                while (valueEnd < json.length() &&
+                       json.charAt(valueEnd) != '"' &&
+                       json.charAt(valueEnd) != ',' &&
+                       json.charAt(valueEnd) != '}') {
                     valueEnd++;
                 }
-                return json.substring(valueStart, valueEnd).trim();
+
+                String value = json.substring(valueStart, valueEnd).trim();
+                return value.isEmpty() ? null : value;
             } catch (Exception e) {
                 return null;
             }
