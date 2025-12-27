@@ -23,13 +23,13 @@ public class WerkstattRESTServer {
 
     private static final int PORT = 8080;
 
-    // Simuler une Base de Données en mémoire
+    // Simulate a database in the ram
     private static final Map<Long, WorkOrder> DATABASE = Collections.synchronizedMap(new HashMap<>());
     private static final AtomicLong ID_GENERATOR = new AtomicLong(1);
 
     public static void main(String[] args) {
         try {
-            // Données de test
+            // test data
             initDummyData();
 
             HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
@@ -81,7 +81,7 @@ public class WerkstattRESTServer {
         return wo;
     }
 
-    // --- CLASSE DE MODÈLE (POJO) ---
+    // --- MODEL CLASS (POJO) ---
     static class WorkOrder {
         long id;
         String licensePlate;
@@ -109,7 +109,7 @@ public class WerkstattRESTServer {
         }
     }
 
-    // --- LE HANDLER PRINCIPAL ---
+    // --- MAIN HANDLER ---
     static class RequestHandler implements HttpHandler {
 
         // HTTP Status Codes
@@ -175,11 +175,11 @@ public class WerkstattRESTServer {
             }
         }
 
-        // --- COLLECTION AVEC FILTRES ---
+        // --- COLLECTION WITH FILTERS ---
         private void handleGetCollection(HttpExchange exchange, String queryString) throws IOException {
             Map<String, String> params = parseQueryParams(queryString);
 
-            // Filtre des données
+            // Data filtering
             List<WorkOrder> filtered = DATABASE.values().stream()
                 .filter(wo -> {
                     // Filtre par status
@@ -392,7 +392,7 @@ public class WerkstattRESTServer {
             return desc != null && desc.length() >= 1 && desc.length() <= 255;
         }
 
-        // --- UTILITAIRES ---
+        // --- UTILS ---
 
         private Map<String, String> parseQueryParams(String query) {
             Map<String, String> params = new HashMap<>();
@@ -447,7 +447,7 @@ public class WerkstattRESTServer {
                 "Allowed methods: " + allowedMethods, exchange.getRequestURI().getPath());
         }
 
-        // Parser JSON simple (pour production: utiliser Jackson/Gson)
+        // Parse simple JSON (in production: use Jackson/Gson)
         private String extractJsonValue(String json, String key) {
             try {
                 String searchKey = "\"" + key + "\"";
