@@ -8,9 +8,7 @@ import java.time.Duration;
 /**
  * Test class for WerkstattRESTServer
  * Starts the server and executes manual tests
- * 
- * Note: This is a manual test since the project doesn't use JUnit
- * For a professional approach, add JUnit 5 to pom.xml
+ *
  */
 public class WerkstattRESTServerTest {
 
@@ -23,7 +21,7 @@ public class WerkstattRESTServerTest {
         System.out.println("=".repeat(70));
         System.out.println("WERKSTATT REST API - TESTS");
         System.out.println("=".repeat(70));
-        System.out.println("\n⚠️  IMPORTANT: First launch WerkstattRESTServer.java");
+        System.out.println("\nIMPORTANT: First launch WerkstattRESTServer.java");
         System.out.println("   then execute this test class\n");
         System.out.println("=".repeat(70));
 
@@ -144,7 +142,7 @@ public class WerkstattRESTServerTest {
             }
 
         } catch (Exception e) {
-            System.err.println("\n❌ CRITICAL ERROR: " + e.getMessage());
+            System.err.println("\nCRITICAL ERROR: " + e.getMessage());
             e.printStackTrace();
         }
 
@@ -153,8 +151,8 @@ public class WerkstattRESTServerTest {
         System.out.println("TEST SUMMARY");
         System.out.println("=".repeat(70));
         System.out.println("Total tests:  " + totalTests);
-        System.out.println("✅ Passed:    " + passedTests);
-        System.out.println("❌ Failed:    " + failedTests);
+        System.out.println("Passed:    " + passedTests);
+        System.out.println("Failed:    " + failedTests);
         System.out.println("Success rate: " + (totalTests > 0 ? (passedTests * 100 / totalTests) : 0) + "%");
         System.out.println("=".repeat(70));
     }
@@ -407,10 +405,10 @@ public class WerkstattRESTServerTest {
     }
 
     private static void printSuccess(String message) {
-        System.out.println("  ✅ " + message);
+        System.out.println("  Succeeded: " + message);
     }
 
     private static void printFailure(String message) {
-        System.out.println("  ❌ " + message);
+        System.out.println("  Failed: " + message);
     }
 }
