@@ -447,7 +447,7 @@ public class WerkstattRESTServer {
                 "Allowed methods: " + allowedMethods, exchange.getRequestURI().getPath());
         }
 
-        // Parse simple JSON (in production: use Jackson/Gson)
+        // Parse simple JSON
         private String extractJsonValue(String json, String key) {
             try {
                 String searchKey = "\"" + key + "\"";
